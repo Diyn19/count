@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>列印計費系統</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        table { border-collapse: collapse; margin: 10px 0; width: 80%; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left;}
+        th { background-color: #ccc !important; }
+        .header-flex { display:flex; justify-content:space-between; align-items:center; width:80%; }
+        .msg { margin: 10px 0; color: green; font-weight: bold; }
+        .err { margin: 10px 0; color: red; font-weight: bold; }
+        input[type="number"], input[type="text"] { width: 140px; }
+        .btn-group { display:flex; gap:10px; margin-top: 10px; }
+		table.contract-table th {text-align: center; center;background-color: #3399FF !important;color: white !important;}
+		button {
+            padding: 10px 15px;
+			font-size: 20px;
+            margin: 5px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h2>列印計費系統</h2>
+
+    {% if message %}
+        <div class="{{ 'msg' if message.startswith('✅') else 'err' }}">{{ message }}</div>
+    {% endif %}
+
+    <!-- 查詢設備 -->
+    <form method="POST" style="margin-bottom: 12px;">
+        <input type="hidden" name="mode" value="query">
+        <label>設備編號:
+            <input type="text" name="device_id" required>
+        </label>
+        <button type="submit">查詢</button>
+    </form>
+
+    {% if contract %}
+    <hr>
+
+    <!-- 客戶資料區塊 -->
+    {% if customer %}
+    <h3 style="font-size:22px;">客戶資料</h3>
+    <table class="contract-table";>
+        <tr><th>項目</th><th>內容</th></tr>
+        <tr><td>客戶名稱</td><td>{{ customer.customer_name }}</td></tr>
+        <tr><td>設備編號</td><td>{{ customer.device_id }}</td></tr>
+        <tr><td>機號</td><td>{{ customer.device_number }}</td></tr>
+        <tr><td>機型</td><td>{{ customer.machine_model }}</td></tr>
+        <tr><td>統一編號</td><td>{{ customer.tax_id }}</td></tr>
+        <tr><td>裝機地址</td><td>{{ customer.install_address }}</td></tr>
+        <tr><td>服務人員</td><td>{{ customer.service_person }}</td></tr>
+        <tr><td>契約編號</td><td>{{ customer.contract_number }}</td></tr>
+        <tr><td>合約開始日</td><td>{{ customer.contract_start }}</td></tr>
+        <tr><td>合約到期日</td><td>{{ customer.contract_end }}</td></tr>
+    </table>
+    {% endif %}
+
+    <!-- 本月抄表表單 -->
+    <form method="POST" style="margin-top:20px;">
+        <input type="hidden" name="device_id" value="{{ contract.device_id }}">
+        <input type="hidden" name="mode" value="calculate">
+
+        <div class="header-flex" style="font-size:18px;width:80%; margin-top:20px;">
+            <h4>輸入當月抄表（寫入資料庫）
+            {% if last_time %}
+                - 上次抄表日期：{{ last_time }}
+            {% endif %}</h4>
+		</div>
+		
+		<div>
+			前次彩色張數: <input type="text" value="{{ last_color }}" readonly>
+            前次黑白張數: <input type="text" value="{{ last_bw }}" readonly>
+		</div>
+		
+		<br>
+		
+		<div>
+            本月彩色張數: <input type="number" name="curr_color" required>
+            本月黑白張數: <input type="number" name="curr_bw" required>
+        </div>
+
+        <div style="margin-top:12px;">
+            <button type="submit">計算並儲存本月抄表</button>
+        </div>
+    </form>
+
+    {% if result %}
+    <hr>
+    <h3 style="font-size:22px;">計算結果</h3>
+    <table class="contract-table";>
+        <tr><th>項目</th><th>數值</th></tr>
+	{% for k, v in result.items() %}
+		<tr {% if k in ["未稅小計", "稅額", "含稅總額"] %} style="background-color: #dfffd6;" {% endif %}>
+			<td>{{ k }}</td>
+			<td>{{ v }}</td>
+		</tr>
+	{% endfor %}
+    </table>
+    {% endif %}
+
+    <!-- 契約條件區塊 -->
+    <div class="header-flex" style="width:80%; margin-top:20px;">
+        <h3 style="font-size:22px;">契約條件</h3>
+        <div>
+            <form method="GET" action="/" style="display:inline;">
+                <input type="hidden" name="device_id" value="{{ contract.device_id }}">
+            </form>
+        </div>
+    </div>
+
+    <form method="POST" style="margin-top:8px;">
+        <input type="hidden" name="device_id" value="{{ contract.device_id }}">
+        <input type="hidden" name="mode" value="update_contract">
+
+        <table class="contract-table";>
+            <tr><th>項目</th><th>數值</th></tr>
+            <tr><td>月租金</td><td><input type="number" step="0.01" name="monthly_rent" value="{{ contract.monthly_rent }}"></td></tr>
+            <tr><td>彩色單價</td><td><input type="number" step="0.01" name="color_unit_price" value="{{ contract.color_unit_price }}"></td></tr>
+            <tr><td>黑白單價</td><td><input type="number" step="0.01" name="bw_unit_price" value="{{ contract.bw_unit_price }}"></td></tr>
+            <tr><td>彩色贈送張數</td><td><input type="number" name="color_giveaway" value="{{ contract.color_giveaway }}"></td></tr>
+            <tr><td>黑白贈送張數</td><td><input type="number" name="bw_giveaway" value="{{ contract.bw_giveaway }}"></td></tr>
+            <tr><td>彩色誤印率 (小數)</td><td><input type="number" step="0.0001" name="color_error_rate" value="{{ contract.color_error_rate }}"></td></tr>
+            <tr><td>黑白誤印率 (小數)</td><td><input type="number" step="0.0001" name="bw_error_rate" value="{{ contract.bw_error_rate }}"></td></tr>
+            <tr><td>彩色基本張數</td><td><input type="number" name="color_basic" value="{{ contract.color_basic }}"></td></tr>
+            <tr><td>黑白基本張數</td><td><input type="number" name="bw_basic" value="{{ contract.bw_basic }}"></td></tr>
+            <tr><td>前次彩色張數</td><td><input type="text" value="{{ last_color }}" readonly></td></tr>
+            <tr><td>前次黑白張數</td><td><input type="text" value="{{ last_bw }}" readonly></td></tr>
+        </table>
+
+        <div style="margin-top:12px;">
+            <button type="submit">更新契約條件</button>
+        </div>
+    </form>
+
+    {% endif %}
+</body>
+</html>
