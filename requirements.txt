@@ -71,7 +71,7 @@ MouseInfo==0.1.3
 pymsgbox==1.0.9
 
 # PyInstaller
-pyinstaller-hooks-contrib==2024.7
+pyinstaller-hooks-contrib==2025.8
 pyinstaller==6.16.0
 
 # 日期 / 時間
