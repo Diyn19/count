@@ -54,7 +54,6 @@ PyAutoGUI==0.9.54
 pycparser==2.22
 pydantic==1.10.12
 PyGetWindow==0.0.9
-pyinstaller==6.8.0
 pyinstaller-hooks-contrib==2024.7
 PyMsgBox==1.0.9
 PyMySQL==1.1.1
