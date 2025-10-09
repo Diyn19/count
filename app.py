@@ -1,16 +1,17 @@
 from flask import Flask, render_template, request, redirect, url_for
 import sqlite3
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
 
 app = Flask(__name__)
 DB_FILE = "billing.db"
 
-# 初始化資料庫（若無則建立）
+
+# --- 初始化資料庫 ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    
+
+    # 契約資料表（含稅別欄位與 contra）
     c.execute("""
         CREATE TABLE IF NOT EXISTS contracts (
             device_id TEXT PRIMARY KEY,
@@ -22,10 +23,13 @@ def init_db():
             color_error_rate REAL,
             bw_error_rate REAL,
             color_basic INTEGER,
-            bw_basic INTEGER
+            bw_basic INTEGER,
+            tax_type TEXT DEFAULT '含稅',
+            contra TEXT DEFAULT ''
         )
     """)
-    
+
+    # 抄表記錄表
     c.execute("""
         CREATE TABLE IF NOT EXISTS usage (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +40,8 @@ def init_db():
             timestamp TEXT
         )
     """)
-    
+
+    # 客戶資料表
     c.execute("""
         CREATE TABLE IF NOT EXISTS customers (
             device_id TEXT PRIMARY KEY,
@@ -51,33 +56,31 @@ def init_db():
             contract_end TEXT
         )
     """)
-    
+
     conn.commit()
     conn.close()
 
-# 取得契約
+
+# --- 查詢契約 ---
 def get_contract(device_id):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT * FROM contracts WHERE device_id=?", (device_id,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {
-            "device_id": row[0],
-            "monthly_rent": row[1],
-            "color_unit_price": row[2],
-            "bw_unit_price": row[3],
-            "color_giveaway": row[4],
-            "bw_giveaway": row[5],
-            "color_error_rate": row[6],
-            "bw_error_rate": row[7],
-            "color_basic": row[8],
-            "bw_basic": row[9]
-        }
-    return None
+    contract_row = c.fetchone()
+    contra_text = ""
 
-# 取得客戶資料
+    if contract_row:
+        col_names = [desc[0] for desc in c.description]
+        contract_dict = dict(zip(col_names, contract_row))
+        contra_text = contract_dict.get("contra", "")
+    else:
+        contract_dict = None
+
+    conn.close()
+    return contract_dict, contra_text
+
+
+# --- 查詢客戶資料 ---
 def get_customer(device_id):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -99,7 +102,22 @@ def get_customer(device_id):
         }
     return None
 
-# 取得最後一筆抄表（前次張數與時間）
+
+# --- 模糊搜尋客戶名稱 ---
+def search_customers_by_name(keyword):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT device_id, customer_name
+        FROM customers
+        WHERE customer_name LIKE ?
+    """, (f"%{keyword}%",))
+    rows = c.fetchall()
+    conn.close()
+    return [{"device_id": r[0], "customer_name": r[1]} for r in rows]
+
+
+# --- 查詢最後抄表 ---
 def get_last_counts(device_id):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -107,11 +125,11 @@ def get_last_counts(device_id):
     row = c.fetchone()
     conn.close()
     if row:
-        last_time = row[2] if row[2] else ""
-        return row[0] or 0, row[1] or 0, last_time
+        return row[0] or 0, row[1] or 0, row[2] or ""
     return 0, 0, ""
 
-# 插入/紀錄本月抄表
+
+# --- 紀錄使用量 ---
 def insert_usage(device_id, color_count, bw_count):
     month = datetime.now().strftime("%Y%m")
     timestamp = datetime.now().strftime("%Y/%m/%d-%H:%M")
@@ -122,33 +140,36 @@ def insert_usage(device_id, color_count, bw_count):
     conn.commit()
     conn.close()
 
-# 計算邏輯（返回結果 dict）
+
+# --- 計算邏輯 ---
 def calculate(contract, curr_color, curr_bw, last_color, last_bw):
     used_color = max(0, curr_color - last_color)
     used_bw = max(0, curr_bw - last_bw)
 
-    # 扣贈送
     bill_color = max(0, used_color - contract["color_giveaway"])
     bill_bw = max(0, used_bw - contract["bw_giveaway"])
 
-    # 誤印率調整
     bill_color = int(round(bill_color * (1 - contract["color_error_rate"])))
     bill_bw = int(round(bill_bw * (1 - contract["bw_error_rate"])))
 
-    # 基本張數
-    if contract["color_basic"] and contract["color_basic"] > 0:
+    if contract["color_basic"] > 0:
         bill_color = max(contract["color_basic"], bill_color)
-    if contract["bw_basic"] and contract["bw_basic"] > 0:
+    if contract["bw_basic"] > 0:
         bill_bw = max(contract["bw_basic"], bill_bw)
 
-    # 金額
     color_amount = bill_color * contract["color_unit_price"]
     bw_amount = bill_bw * contract["bw_unit_price"]
     subtotal = contract["monthly_rent"] + color_amount + bw_amount
 
     tax_rate = 0.05
-    tax = subtotal * tax_rate
-    total = subtotal + tax
+    if contract.get("tax_type") == "未稅":
+        tax = subtotal * tax_rate
+        total = subtotal + tax
+        untaxed = subtotal
+    else:
+        total = subtotal
+        untaxed = subtotal / (1 + tax_rate)
+        tax = total - untaxed
 
     return {
         "彩色使用張數": used_color,
@@ -158,98 +179,98 @@ def calculate(contract, curr_color, curr_bw, last_color, last_bw):
         "彩色金額": round(color_amount, 2),
         "黑白金額": round(bw_amount, 2),
         "月租金": round(contract["monthly_rent"], 2),
-        # 🔽 這三個四捨五入到整數
-        "未稅小計": int(round(subtotal)),
+        "未稅小計": int(round(untaxed)),
         "稅額": int(round(tax)),
         "含稅總額": int(round(total))
     }
 
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     message = request.args.get("message", "")
-    contract = None
-    customer = None
+    contract, customer, result = None, None, None
+    contra_text = ""
     last_color, last_bw, last_time = 0, 0, ""
-    result = None
+    matches = []
 
     if request.method == "POST":
         mode = request.form.get("mode")
-        
+        keyword = request.form.get("device_id", "").strip()
+
+        # 模糊查詢客戶名稱
         if mode == "query":
-            device_id = request.form.get("device_id", "").strip()
-            contract = get_contract(device_id)
-            customer = get_customer(device_id)
+            contract, contra_text = get_contract(keyword)
+            customer = get_customer(keyword)
             if not contract:
-                message = f"❌ 找不到設備 {device_id}"
+                matches = search_customers_by_name(keyword)
+                if matches:
+                    message = f"🔍 找到 {len(matches)} 筆相符客戶"
+                else:
+                    message = f"❌ 找不到設備或客戶：{keyword}"
             else:
-                last_color, last_bw, last_time = get_last_counts(device_id)
+                last_color, last_bw, last_time = get_last_counts(keyword)
 
         elif mode == "calculate":
-            device_id = request.form.get("device_id", "").strip()
-            contract = get_contract(device_id)
+            device_id = keyword
+            contract, contra_text = get_contract(device_id)
             customer = get_customer(device_id)
-            if not contract:
-                message = f"❌ 找不到設備 {device_id}"
-            else:
+            if contract:
                 last_color, last_bw, last_time = get_last_counts(device_id)
-                try:
-                    curr_color = int(request.form.get("curr_color", "0"))
-                    curr_bw = int(request.form.get("curr_bw", "0"))
-                except Exception as e:
-                    message = f"輸入格式錯誤: {e}"
-                else:
-                    result = calculate(contract, curr_color, curr_bw, last_color, last_bw)
-                    insert_usage(device_id, curr_color, curr_bw)
+                curr_color = int(request.form.get("curr_color", "0"))
+                curr_bw = int(request.form.get("curr_bw", "0"))
+                result = calculate(contract, curr_color, curr_bw, last_color, last_bw)
+                insert_usage(device_id, curr_color, curr_bw)
+            else:
+                message = f"❌ 找不到設備 {device_id}"
 
         elif mode == "update_contract":
-            device_id = request.form.get("device_id", "").strip()
-            try:
-                monthly_rent = float(request.form.get("monthly_rent", "0") or "0")
-                color_unit_price = float(request.form.get("color_unit_price", "0") or "0")
-                bw_unit_price = float(request.form.get("bw_unit_price", "0") or "0")
-                color_giveaway = int(request.form.get("color_giveaway", "0") or "0")
-                bw_giveaway = int(request.form.get("bw_giveaway", "0") or "0")
-                color_error_rate = float(request.form.get("color_error_rate", "0") or "0")
-                bw_error_rate = float(request.form.get("bw_error_rate", "0") or "0")
-                color_basic = int(request.form.get("color_basic", "0") or "0")
-                bw_basic = int(request.form.get("bw_basic", "0") or "0")
-            except Exception as e:
-                message = f"讀取表單欄位錯誤: {e}"
-            else:
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute("""UPDATE contracts SET
-                             monthly_rent=?, color_unit_price=?, bw_unit_price=?,
-                             color_giveaway=?, bw_giveaway=?, color_error_rate=?, bw_error_rate=?,
-                             color_basic=?, bw_basic=? WHERE device_id=?""",
-                          (monthly_rent, color_unit_price, bw_unit_price,
-                           color_giveaway, bw_giveaway, color_error_rate, bw_error_rate,
-                           color_basic, bw_basic, device_id))
-                conn.commit()
-                conn.close()
-                return redirect(url_for("index", device_id=device_id, message="✅ 契約條件已更新"))
+            device_id = keyword
+            fields = {
+                "monthly_rent": float(request.form.get("monthly_rent", "0") or 0),
+                "color_unit_price": float(request.form.get("color_unit_price", "0") or 0),
+                "bw_unit_price": float(request.form.get("bw_unit_price", "0") or 0),
+                "color_giveaway": int(request.form.get("color_giveaway", "0") or 0),
+                "bw_giveaway": int(request.form.get("bw_giveaway", "0") or 0),
+                "color_error_rate": float(request.form.get("color_error_rate", "0") or 0),
+                "bw_error_rate": float(request.form.get("bw_error_rate", "0") or 0),
+                "color_basic": int(request.form.get("color_basic", "0") or 0),
+                "bw_basic": int(request.form.get("bw_basic", "0") or 0),
+                "tax_type": request.form.get("tax_type", "含稅"),
+            }
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("""
+                UPDATE contracts SET
+                    monthly_rent=?, color_unit_price=?, bw_unit_price=?,
+                    color_giveaway=?, bw_giveaway=?, color_error_rate=?, bw_error_rate=?,
+                    color_basic=?, bw_basic=?, tax_type=?
+                WHERE device_id=?""",
+                (*fields.values(), device_id))
+            conn.commit()
+            conn.close()
+            return redirect(url_for("index", device_id=device_id, message="✅ 契約條件已更新"))
 
-    else:
+    elif request.args.get("device_id"):
         q_device = request.args.get("device_id")
-        if q_device:
-            contract = get_contract(q_device)
-            customer = get_customer(q_device)
-            if contract:
-                last_color, last_bw, last_time = get_last_counts(q_device)
-            else:
-                message = f"❌ 找不到設備 {q_device}"
+        contract, contra_text = get_contract(q_device)
+        customer = get_customer(q_device)
+        if contract:
+            last_color, last_bw, last_time = get_last_counts(q_device)
+        else:
+            message = f"❌ 找不到設備 {q_device}"
 
     return render_template("index.html",
                            contract=contract,
+                           contra_text=contra_text,
                            customer=customer,
                            last_color=last_color,
                            last_bw=last_bw,
                            last_time=last_time,
                            result=result,
+                           matches=matches,
                            message=message)
 
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
 
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=10000)

@@ -13,10 +13,10 @@
         .err { margin: 10px 0; color: red; font-weight: bold; }
         input[type="number"], input[type="text"] { width: 140px; }
         .btn-group { display:flex; gap:10px; margin-top: 10px; }
-		table.contract-table th {text-align: center; center;background-color: #3399FF !important;color: white !important;}
-		button {
+        table.contract-table th {text-align: center; background-color: #3399FF !important;color: white !important;}
+        button {
             padding: 10px 15px;
-			font-size: 20px;
+            font-size: 20px;
             margin: 5px;
             background-color: #007BFF;
             color: white;
@@ -24,23 +24,64 @@
             border-radius: 5px;
             cursor: pointer;
         }
+		.search-label {
+			font-family: "Microsoft JhengHei", sans-serif;
+			font-size: 18px;
+		}
+		.search-input {
+			font-family: "Microsoft JhengHei", sans-serif;
+			font-size: 16px;
+			padding: 4px 6px;
+		}
+		.search-btn {
+			font-family: "Microsoft JhengHei", sans-serif;
+			font-size: 16px;
+			padding: 6px 12px;
+		}
     </style>
 </head>
 <body>
     <h2>列印計費系統</h2>
 
+	<!-- 查詢設備或客戶 -->
+	<form method="POST" style="margin-bottom: 12px;">
+		<input type="hidden" name="mode" value="query">
+		<label class="search-label">設備編號 / 客戶名稱(概略):
+			<input type="text" name="device_id" required class="search-input">
+		</label>
+		<button type="submit" class="search-btn">查詢</button>
+	</form>
+
     {% if message %}
         <div class="{{ 'msg' if message.startswith('✅') else 'err' }}">{{ message }}</div>
     {% endif %}
 
-    <!-- 查詢設備 -->
-    <form method="POST" style="margin-bottom: 12px;">
-        <input type="hidden" name="mode" value="query">
-        <label>設備編號:
-            <input type="text" name="device_id" required>
-        </label>
-        <button type="submit">查詢</button>
-    </form>
+    <!-- 若找到多筆相符的客戶 -->
+    {% if matches %}
+      <div style="margin-top: 20px;">
+        <h3>🔍 找到多筆相符的客戶，請選擇：</h3>
+        <table border="1" cellspacing="0" cellpadding="6" style="border-collapse: collapse; width: 60%;">
+          <thead style="background-color: #f2f2f2;">
+            <tr>
+              <th>設備編號</th>
+              <th>客戶名稱</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in matches %}
+            <tr>
+              <td>
+                <a href="/?device_id={{m.device_id}}" style="text-decoration: none; color: blue;">
+                  {{m.device_id}}
+                </a>
+              </td>
+              <td>{{m.customer_name}}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
 
     {% if contract %}
     <hr>
@@ -48,7 +89,7 @@
     <!-- 客戶資料區塊 -->
     {% if customer %}
     <h3 style="font-size:22px;">客戶資料</h3>
-    <table class="contract-table";>
+    <table class="contract-table">
         <tr><th>項目</th><th>內容</th></tr>
         <tr><td>客戶名稱</td><td>{{ customer.customer_name }}</td></tr>
         <tr><td>設備編號</td><td>{{ customer.device_id }}</td></tr>
@@ -73,16 +114,16 @@
             {% if last_time %}
                 - 上次抄表日期：{{ last_time }}
             {% endif %}</h4>
-		</div>
-		
-		<div>
-			前次彩色張數: <input type="text" value="{{ last_color }}" readonly>
+        </div>
+
+        <div>
+            前次彩色張數: <input type="text" value="{{ last_color }}" readonly>
             前次黑白張數: <input type="text" value="{{ last_bw }}" readonly>
-		</div>
-		
-		<br>
-		
-		<div>
+        </div>
+
+        <br>
+
+        <div>
             本月彩色張數: <input type="number" name="curr_color" required>
             本月黑白張數: <input type="number" name="curr_bw" required>
         </div>
@@ -95,32 +136,36 @@
     {% if result %}
     <hr>
     <h3 style="font-size:22px;">計算結果</h3>
-    <table class="contract-table";>
+    <table class="contract-table">
         <tr><th>項目</th><th>數值</th></tr>
-	{% for k, v in result.items() %}
-		<tr {% if k in ["未稅小計", "稅額", "含稅總額"] %} style="background-color: #dfffd6;" {% endif %}>
-			<td>{{ k }}</td>
-			<td>{{ v }}</td>
-		</tr>
-	{% endfor %}
+        {% for k, v in result.items() %}
+        <tr {% if k in ["未稅小計", "稅額", "含稅總額"] %} style="background-color: #dfffd6;" {% endif %}>
+            <td>{{ k }}</td>
+            <td>{{ v }}</td>
+        </tr>
+        {% endfor %}
     </table>
     {% endif %}
 
     <!-- 契約條件區塊 -->
     <div class="header-flex" style="width:80%; margin-top:20px;">
         <h3 style="font-size:22px;">契約條件</h3>
-        <div>
-            <form method="GET" action="/" style="display:inline;">
-                <input type="hidden" name="device_id" value="{{ contract.device_id }}">
-            </form>
-        </div>
     </div>
+	
+	{% if contra_text %}
+	<div style="width:80%; margin-top:10px;">
+		<div style="border: 1px solid #aaa; border-radius: 8px; padding: 10px; font-size: 15px; font-family: 'Microsoft JhengHei', sans-serif; white-space: pre-line; background-color:#f8f8f8;">
+			{{ contra_text }}
+		</div>
+	</div>
+	{% endif %}
+
 
     <form method="POST" style="margin-top:8px;">
         <input type="hidden" name="device_id" value="{{ contract.device_id }}">
         <input type="hidden" name="mode" value="update_contract">
 
-        <table class="contract-table";>
+        <table class="contract-table">
             <tr><th>項目</th><th>數值</th></tr>
             <tr><td>月租金</td><td><input type="number" step="0.01" name="monthly_rent" value="{{ contract.monthly_rent }}"></td></tr>
             <tr><td>彩色單價</td><td><input type="number" step="0.01" name="color_unit_price" value="{{ contract.color_unit_price }}"></td></tr>
@@ -133,6 +178,14 @@
             <tr><td>黑白基本張數</td><td><input type="number" name="bw_basic" value="{{ contract.bw_basic }}"></td></tr>
             <tr><td>前次彩色張數</td><td><input type="text" value="{{ last_color }}" readonly></td></tr>
             <tr><td>前次黑白張數</td><td><input type="text" value="{{ last_bw }}" readonly></td></tr>
+            <tr><td>稅別</td>
+                <td>
+                    <select name="tax_type">
+                        <option value="未稅" {% if contract.tax_type == "未稅" %}selected{% endif %}>未稅</option>
+                        <option value="含稅" {% if contract.tax_type == "含稅" %}selected{% endif %}>含稅</option>
+                    </select>
+                </td>
+            </tr>
         </table>
 
         <div style="margin-top:12px;">

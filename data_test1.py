@@ -3,7 +3,7 @@ import sqlite3
 conn = sqlite3.connect("billing.db")
 c = conn.cursor()
 
-# --- 建立 contracts 表（若尚未建立） ---
+# --- 建立 contracts 表（若尚未建立），新增 tax_type 欄位 ---
 c.execute("""
 CREATE TABLE IF NOT EXISTS contracts (
     device_id TEXT PRIMARY KEY,
@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     color_error_rate REAL,
     bw_error_rate REAL,
     color_basic INTEGER,
-    bw_basic INTEGER
+    bw_basic INTEGER,
+    tax_type TEXT DEFAULT '含稅'  -- 新增稅別欄位
 )
 """)
 
@@ -35,15 +36,15 @@ CREATE TABLE IF NOT EXISTS customers (
 )
 """)
 
-# --- 契約資料 ---
+# --- 契約資料 (加入 tax_type) ---
 c.execute("""
 INSERT OR REPLACE INTO contracts VALUES (
-    'DEV001', 1000, 3.0, 0.5, 50, 100, 0.02, 0.01, 200, 500
+    'DEV001', 1000, 3.0, 0.5, 50, 100, 0.02, 0.01, 200, 500, '含稅'
 )
 """)
 c.execute("""
 INSERT OR REPLACE INTO contracts VALUES (
-    'DEV002', 1500, 2.8, 0.6, 80, 200, 0.015, 0.02, 300, 600
+    'DEV002', 1500, 2.8, 0.6, 80, 200, 0.015, 0.02, 300, 600, '未稅'
 )
 """)
 
@@ -63,4 +64,4 @@ INSERT OR REPLACE INTO customers VALUES (
 
 conn.commit()
 conn.close()
-print("✅ Sample contracts & customers inserted (DEV001 & DEV002)!")
+print("✅ Sample contracts & customers inserted (DEV001 & DEV002) with tax_type!")
